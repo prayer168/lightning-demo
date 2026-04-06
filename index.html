@@ -52,6 +52,44 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
+// ── Web Audio: thunder sound ──────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playThunder(delay = 0) {
+  setTimeout(() => {
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 3.5, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    // rumble: layered noise with envelope
+    for (let i = 0; i < data.length; i++) {
+      const t = i / audioCtx.sampleRate;
+      const env = Math.exp(-t * 1.1) * (t < 0.08 ? t / 0.08 : 1);
+      const rumble = (Math.random() * 2 - 1) * 0.9
+        + Math.sin(t * 42) * 0.18
+        + Math.sin(t * 27 + 1.2) * 0.12
+        + Math.sin(t * 15) * 0.08;
+      data[i] = rumble * env * 0.85;
+    }
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+
+    // low-pass filter for deep rumble
+    const lpf = audioCtx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 220; lpf.Q.value = 1.2;
+
+    // compressor to even out
+    const comp = audioCtx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.ratio.value = 6;
+
+    src.connect(lpf); lpf.connect(comp); comp.connect(audioCtx.destination);
+    src.start();
+  }, delay);
+}
+
+function unlockAudio() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+document.addEventListener('click', unlockAudio, { once: true });
+
 // ── Camera shake ──────────────────────────────────────────
 let shakeX = 0, shakeY = 0, shakePower = 0;
 function triggerShake(p) { shakePower = Math.max(shakePower, p); }
@@ -63,7 +101,6 @@ function updateShake() {
   } else { shakeX = shakeY = shakePower = 0; }
 }
 
-// ── Global flash ──────────────────────────────────────────
 let flashBrightness = 0;
 
 // ── Sky ───────────────────────────────────────────────────
@@ -72,60 +109,45 @@ function drawSky() {
   g.addColorStop(0, '#020205');
   g.addColorStop(0.55, '#060b18');
   g.addColorStop(1, '#0c1122');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 }
 
-// ── Distant mountains (depth-of-field blur) ───────────────
+// ── Mountains (depth blur) ────────────────────────────────
 function drawMountains() {
-  ctx.save();
-  ctx.filter = 'blur(5px)';
-  ctx.globalAlpha = 0.5;
-
+  ctx.save(); ctx.filter = 'blur(5px)'; ctx.globalAlpha = 0.5;
   const g1 = ctx.createLinearGradient(0, H*0.48, 0, H*0.74);
   g1.addColorStop(0,'#18183a'); g1.addColorStop(1,'#0c0c1c');
-  ctx.fillStyle = g1;
-  ctx.beginPath(); ctx.moveTo(0, H*0.74);
+  ctx.fillStyle = g1; ctx.beginPath(); ctx.moveTo(0, H*0.74);
   [[0,0.72],[0.07,0.54],[0.13,0.61],[0.20,0.50],[0.28,0.57],
    [0.36,0.48],[0.43,0.55],[0.50,0.46],[0.58,0.52],[0.65,0.47],
    [0.72,0.54],[0.80,0.49],[0.88,0.58],[0.95,0.52],[1,0.56],[1,0.74]
   ].forEach(([x,y])=>ctx.lineTo(x*W,y*H));
   ctx.closePath(); ctx.fill();
-
   ctx.globalAlpha = 0.68;
   const g2 = ctx.createLinearGradient(0, H*0.62, 0, H*0.84);
   g2.addColorStop(0,'#0f0f28'); g2.addColorStop(1,'#080813');
-  ctx.fillStyle = g2;
-  ctx.beginPath(); ctx.moveTo(0, H*0.84);
+  ctx.fillStyle = g2; ctx.beginPath(); ctx.moveTo(0, H*0.84);
   [[0,0.82],[0.1,0.72],[0.2,0.76],[0.32,0.68],[0.42,0.73],
    [0.55,0.65],[0.65,0.71],[0.78,0.67],[0.88,0.74],[1,0.70],[1,0.84]
   ].forEach(([x,y])=>ctx.lineTo(x*W,y*H));
   ctx.closePath(); ctx.fill();
-
-  ctx.filter = 'none';
-  ctx.restore();
+  ctx.filter = 'none'; ctx.restore();
 }
 
 // ── Clouds ────────────────────────────────────────────────
 const clouds = Array.from({length:9}, ()=>({
-  x: Math.random()*1400-200,
-  y: 40+Math.random()*90,
-  r: 65+Math.random()*85,
-  speed: 0.12+Math.random()*0.28,
-  alpha: 0.45+Math.random()*0.4,
-  flash: 0
+  x: Math.random()*1400-200, y: 40+Math.random()*90,
+  r: 65+Math.random()*85, speed: 0.12+Math.random()*0.28,
+  alpha: 0.45+Math.random()*0.4, flash: 0
 }));
-
 function drawClouds() {
   clouds.forEach(c=>{
     c.x += c.speed;
     if (c.x > W+300) c.x = -300;
     if (c.flash > 0) c.flash = Math.max(0, c.flash-0.04);
-    ctx.save();
-    ctx.globalAlpha = c.alpha;
+    ctx.save(); ctx.globalAlpha = c.alpha;
     const base = c.flash>0
-      ? `rgba(${Math.floor(60+c.flash*180)},${Math.floor(60+c.flash*160)},255,1)`
-      : '#2e2e5a';
+      ? `rgba(${Math.floor(60+c.flash*180)},${Math.floor(60+c.flash*160)},255,1)` : '#2e2e5a';
     const g = ctx.createRadialGradient(c.x,c.y,8,c.x,c.y,c.r);
     g.addColorStop(0,base); g.addColorStop(1,'transparent');
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,Math.PI*2); ctx.fill();
@@ -138,7 +160,6 @@ function drawClouds() {
     ctx.restore();
   });
 }
-
 function flashClouds(x, intensity) {
   clouds.forEach(c=>{
     const d = Math.abs(c.x-x);
@@ -146,15 +167,12 @@ function flashClouds(x, intensity) {
   });
 }
 
-// ── Rain layers: far / mid / near ─────────────────────────
+// ── Rain layers ───────────────────────────────────────────
 function makeLayer(n, sMin, sMax, lMin, lMax, aMin, aMax, ang) {
   return Array.from({length:n}, ()=>({
-    x: Math.random()*W*1.5,
-    y: Math.random()*H,
-    spd: sMin+Math.random()*(sMax-sMin),
-    len: lMin+Math.random()*(lMax-lMin),
-    alpha: aMin+Math.random()*(aMax-aMin),
-    ang
+    x: Math.random()*W*1.5, y: Math.random()*H,
+    spd: sMin+Math.random()*(sMax-sMin), len: lMin+Math.random()*(lMax-lMin),
+    alpha: aMin+Math.random()*(aMax-aMin), ang
   }));
 }
 const farRain  = makeLayer(130,  3,  5,  5,  9, 0.05, 0.11, -1.2);
@@ -174,45 +192,35 @@ function drawRainLayer(drops, color) {
   ctx.restore();
 }
 
-// ── Ground + water reflection ─────────────────────────────
+// ── Ground + reflection ───────────────────────────────────
 function drawGround() {
   const gy=GY();
   const g=ctx.createLinearGradient(0,gy,0,H);
   g.addColorStop(0,'#0c0c1e'); g.addColorStop(1,'#060610');
   ctx.fillStyle=g; ctx.fillRect(0,gy,W,H-gy);
-  ctx.save();
-  ctx.globalAlpha=0.08+flashBrightness*0.25;
+  ctx.save(); ctx.globalAlpha=0.08+flashBrightness*0.25;
   const wg=ctx.createLinearGradient(0,gy,0,H);
   wg.addColorStop(0,'#2244aa'); wg.addColorStop(1,'transparent');
-  ctx.fillStyle=wg; ctx.fillRect(0,gy,W,H-gy);
-  ctx.restore();
+  ctx.fillStyle=wg; ctx.fillRect(0,gy,W,H-gy); ctx.restore();
 }
 
-// ── Splash system ─────────────────────────────────────────
+// ── Splash (小水花) ───────────────────────────────────────
 const splashes = [];
 function addSplash(x, y) {
-  splashes.push({x, y, r:0, alpha:0.55, vr:1.5+Math.random()*2.5});
+  // smaller: max radius 6, fewer droplets
+  splashes.push({x, y, r:0, alpha:0.4, vr:0.8+Math.random()*1.2});
 }
 let splashTimer = 0;
 function updateSplashes() {
   splashTimer++;
-  if (splashTimer%2===0) addSplash(Math.random()*W, GY()+Math.random()*6);
+  if (splashTimer%3===0) addSplash(Math.random()*W, GY()+Math.random()*4);
   for (let i=splashes.length-1; i>=0; i--) {
     const s=splashes[i];
-    s.r+=s.vr; s.alpha-=0.038;
-    if (s.alpha<=0) { splashes.splice(i,1); continue; }
+    s.r+=s.vr; s.alpha-=0.055;
+    if (s.alpha<=0||s.r>6) { splashes.splice(i,1); continue; }
     ctx.save();
-    ctx.globalAlpha=s.alpha*0.5; ctx.strokeStyle='#99bbdd'; ctx.lineWidth=0.8;
-    ctx.beginPath(); ctx.ellipse(s.x,s.y,s.r,s.r*0.28,0,0,Math.PI*2); ctx.stroke();
-    if (s.r<10) {
-      for (let j=0;j<4;j++) {
-        const a=(j/4)*Math.PI*2;
-        ctx.globalAlpha=s.alpha*0.35; ctx.fillStyle='#88aabb';
-        ctx.beginPath();
-        ctx.arc(s.x+Math.cos(a)*s.r*0.9, s.y-s.r*0.5+Math.sin(a)*s.r*0.25, 1, 0, Math.PI*2);
-        ctx.fill();
-      }
-    }
+    ctx.globalAlpha=s.alpha*0.45; ctx.strokeStyle='#88aacc'; ctx.lineWidth=0.6;
+    ctx.beginPath(); ctx.ellipse(s.x,s.y,s.r,s.r*0.25,0,0,Math.PI*2); ctx.stroke();
     ctx.restore();
   }
 }
@@ -229,127 +237,158 @@ function drawThunder() {
     w.r+=5; w.alpha-=0.01;
     if (w.alpha<=0) { tWaves.splice(i,1); continue; }
     ctx.save(); ctx.globalAlpha=w.alpha; ctx.strokeStyle='#aabbff'; ctx.lineWidth=1.2;
-    ctx.beginPath(); ctx.ellipse(w.x,w.y,w.r,w.r*0.18,0,0,Math.PI*2); ctx.stroke();
-    ctx.restore();
+    ctx.beginPath(); ctx.ellipse(w.x,w.y,w.r,w.r*0.18,0,0,Math.PI*2); ctx.stroke(); ctx.restore();
   }
 }
 
-// ── Ground Lightning (地擊閃) ─────────────────────────────
+// ── Ground Lightning — 樹枝狀由上往下展開 ─────────────────
 class GroundLightning {
   constructor(x) {
-    this.segs=[]; this.alpha=1; this.fAlpha=1;
-    this._gen(x, H*0.06+Math.random()*50, GY(), 0);
+    this.rootX = x;
+    this.rootY = H * 0.05 + Math.random() * 40;
+    this.branches = [];   // 所有樹枝
+    this.alpha = 1;
+    this.fAlpha = 1;
+    this.growing = true;
+    this.growStep = 0;
+    this.allSegs = [];    // flat list for draw order
+    this._buildTree();
   }
-  _gen(x, y, tY, depth) {
-    if (depth>5) return;
-    const steps=8+Math.floor(Math.random()*5);
+
+  // 遞迴建立樹枝結構（預先算好所有座標）
+  _buildTree() {
+    this._grow(this.rootX, this.rootY, GY(), 0, 0);
+  }
+
+  _grow(x, y, targetY, depth, parentStep) {
+    if (depth > 4) return;
+    const steps = 9 + Math.floor(Math.random()*5);
     let cx=x, cy=y;
-    const dh=(tY-y)/steps;
-    for (let i=0;i<steps;i++) {
-      const nx=cx+(Math.random()-0.5)*(85-depth*12);
-      const ny=cy+dh+(Math.random()-0.5)*8;
-      this.segs.push({x1:cx,y1:cy,x2:nx,y2:ny,d:depth});
-      if (Math.random()<0.32&&depth<3)
-        this._gen(nx,ny,ny+(tY-ny)*(0.3+Math.random()*0.4),depth+1);
+    const dh = (targetY - y) / steps;
+    for (let i=0; i<steps; i++) {
+      const nx = cx + (Math.random()-0.5)*(90-depth*14);
+      const ny = cy + dh + (Math.random()-0.5)*6;
+      const globalStep = parentStep + i;
+      this.allSegs.push({x1:cx,y1:cy,x2:nx,y2:ny,d:depth,step:globalStep});
+      // 分叉：每段有機率長出子樹枝，子樹枝繼承當前 step
+      if (Math.random()<0.28 && depth<3) {
+        const branchTargetY = ny + (targetY-ny)*(0.35+Math.random()*0.4);
+        this._grow(nx, ny, branchTargetY, depth+1, globalStep);
+      }
       cx=nx; cy=ny;
     }
-    if (depth===0) for(let i=0;i<6;i++) setTimeout(()=>addSplash(cx+(Math.random()-.5)*50,GY()),i*25);
-  }
-  draw() {
-    if (this.fAlpha>0) {
-      ctx.save(); ctx.globalAlpha=this.fAlpha*0.22;
-      ctx.fillStyle='#bbccff'; ctx.fillRect(0,0,W,H); ctx.restore();
-      this.fAlpha-=0.055;
+    // 落地濺水（只有 depth=0 主幹末端）
+    if (depth===0) {
+      const fx=cx, fy=cy;
+      for(let i=0;i<3;i++) setTimeout(()=>addSplash(fx+(Math.random()-.5)*30,GY()),i*20);
     }
-    this.segs.forEach(s=>{
-      const w=Math.max(0.4,4.5-s.d*0.85);
-      ctx.save(); ctx.globalAlpha=this.alpha*0.18; ctx.strokeStyle='#5588ff';
-      ctx.lineWidth=w*8; ctx.shadowColor='#88aaff'; ctx.shadowBlur=45;
+  }
+
+  draw() {
+    // 展開進度
+    if (this.growing) {
+      this.growStep += 3;
+      const maxStep = Math.max(...this.allSegs.map(s=>s.step));
+      if (this.growStep >= maxStep) this.growing = false;
+    }
+
+    // 全畫面閃光
+    if (this.fAlpha>0) {
+      ctx.save(); ctx.globalAlpha=this.fAlpha*0.2;
+      ctx.fillStyle='#bbccff'; ctx.fillRect(0,0,W,H); ctx.restore();
+      this.fAlpha -= 0.07;
+    }
+
+    // 只畫已展開到的線段
+    this.allSegs.forEach(s=>{
+      if (s.step > this.growStep) return;
+      const w = Math.max(0.4, 5-s.d*1.0);
+      ctx.save();
+      ctx.globalAlpha=this.alpha*0.15; ctx.strokeStyle='#5588ff';
+      ctx.lineWidth=w*7; ctx.shadowColor='#88aaff'; ctx.shadowBlur=40;
       ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke();
-      ctx.globalAlpha=this.alpha; ctx.strokeStyle=s.d===0?'#ffffff':'#ddeeff';
-      ctx.lineWidth=w; ctx.shadowBlur=18;
+      ctx.globalAlpha=this.alpha;
+      ctx.strokeStyle=s.d===0?'#ffffff':'#ddeeff';
+      ctx.lineWidth=w; ctx.shadowBlur=16;
       ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke();
       ctx.restore();
     });
-    this.alpha-=0.02;
-    return this.alpha>0;
+
+    // 快速淡出
+    if (!this.growing) this.alpha -= 0.055;
+    return this.alpha > 0;
   }
 }
 
-// ── Cloud Lightning (雲中閃) ──────────────────────────────
+// ── Cloud Lightning — 雲中橫向展開 ───────────────────────
 class CloudLightning {
   constructor(x, y) {
-    this.segs=[]; this.alpha=1; this.fAlpha=0.55;
-    this._gen(x, y, 0);
+    this.allSegs=[]; this.alpha=1; this.fAlpha=0.5;
+    this.growStep=0; this.growing=true;
+    this._gen(x, y, 0, 0);
   }
-  _gen(x, y, depth) {
-    if (depth>4) return;
-    const steps=5+Math.floor(Math.random()*5);
+  _gen(x, y, depth, parentStep) {
+    if (depth>3) return;
+    const steps=5+Math.floor(Math.random()*4);
     let cx=x, cy=y;
     for (let i=0;i<steps;i++) {
       const nx=cx+(Math.random()-0.5)*(110-depth*18);
-      const ny=cy+(Math.random()-0.5)*(55-depth*9);
-      this.segs.push({x1:cx,y1:cy,x2:nx,y2:ny,d:depth});
-      if (Math.random()<0.38) this._gen(nx,ny,depth+1);
+      const ny=cy+(Math.random()-0.5)*(45-depth*8);
+      const gs=parentStep+i;
+      this.allSegs.push({x1:cx,y1:cy,x2:nx,y2:ny,d:depth,step:gs});
+      if (Math.random()<0.35) this._gen(nx,ny,depth+1,gs);
       cx=nx; cy=ny;
     }
   }
   draw() {
-    if (this.fAlpha>0) {
-      ctx.save(); ctx.globalAlpha=this.fAlpha*0.13;
-      ctx.fillStyle='#9999ee'; ctx.fillRect(0,0,W,H); ctx.restore();
-      this.fAlpha-=0.035;
+    if (this.growing) {
+      this.growStep += 4;
+      const maxStep = Math.max(...this.allSegs.map(s=>s.step));
+      if (this.growStep >= maxStep) this.growing = false;
     }
-    this.segs.forEach(s=>{
-      ctx.save(); ctx.globalAlpha=this.alpha*0.18; ctx.strokeStyle='#7777ff';
-      ctx.lineWidth=6; ctx.shadowColor='#aaaaff'; ctx.shadowBlur=28;
+    if (this.fAlpha>0) {
+      ctx.save(); ctx.globalAlpha=this.fAlpha*0.12;
+      ctx.fillStyle='#9999ee'; ctx.fillRect(0,0,W,H); ctx.restore();
+      this.fAlpha-=0.06;
+    }
+    this.allSegs.forEach(s=>{
+      if (s.step > this.growStep) return;
+      ctx.save(); ctx.globalAlpha=this.alpha*0.15; ctx.strokeStyle='#7777ff';
+      ctx.lineWidth=5; ctx.shadowColor='#aaaaff'; ctx.shadowBlur=24;
       ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke();
       ctx.globalAlpha=this.alpha*0.75; ctx.strokeStyle='#ccd0ff';
       ctx.lineWidth=Math.max(0.3,2-s.d*0.4); ctx.shadowBlur=8;
       ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke();
       ctx.restore();
     });
-    this.alpha-=0.028;
-    return this.alpha>0;
+    if (!this.growing) this.alpha -= 0.06;
+    return this.alpha > 0;
   }
 }
 
-// ── Lens drops (鏡頭雨滴) ─────────────────────────────────
-let lensDrops = [];
-let lensFlash = 0;
-
+// ── Lens drops ────────────────────────────────────────────
+let lensDrops = [], lensFlash = 0;
 function makeDrop() {
   return {
     x: Math.random()*W, y: Math.random()*H*0.8,
-    r: 4+Math.random()*14,
-    vy: 0.25+Math.random()*1.8,
-    vx: (Math.random()-0.5)*0.25,
-    alpha: 0.25+Math.random()*0.5,
-    refAlpha: 0,
-    streak: Math.random()<0.45,
-    sLen: 25+Math.random()*70,
-    wobble: Math.random()*Math.PI*2,
+    r: 4+Math.random()*14, vy: 0.25+Math.random()*1.8,
+    vx: (Math.random()-0.5)*0.25, alpha: 0.25+Math.random()*0.5,
+    refAlpha: 0, streak: Math.random()<0.45,
+    sLen: 25+Math.random()*70, wobble: Math.random()*Math.PI*2,
     wSpd: 0.018+Math.random()*0.025
   };
 }
-function initLensDrops() {
-  lensDrops = Array.from({length:35}, makeDrop);
-}
+function initLensDrops() { lensDrops = Array.from({length:35}, makeDrop); }
 function flashLens(intensity) {
   lensFlash = Math.min(1, lensFlash+intensity);
   lensDrops.forEach(d=>{ d.refAlpha = intensity*(0.4+Math.random()*0.6); });
 }
-
 function drawLens() {
   lctx.clearRect(0,0,W,H);
-
-  // moisture vignette
   lctx.save();
   const vig=lctx.createRadialGradient(W/2,H/2,H*0.3,W/2,H/2,H*0.8);
   vig.addColorStop(0,'transparent'); vig.addColorStop(1,'rgba(5,8,20,0.35)');
   lctx.fillStyle=vig; lctx.globalAlpha=0.6; lctx.fillRect(0,0,W,H); lctx.restore();
-
-  // lens flash bloom
   if (lensFlash>0) {
     lctx.save(); lctx.globalAlpha=lensFlash*0.18;
     const fg=lctx.createRadialGradient(W/2,H*0.35,0,W/2,H*0.35,W*0.75);
@@ -357,43 +396,29 @@ function drawLens() {
     lctx.fillStyle=fg; lctx.fillRect(0,0,W,H); lctx.restore();
     lensFlash=Math.max(0,lensFlash-0.025);
   }
-
   lensDrops.forEach(d=>{
-    d.wobble+=d.wSpd;
-    d.x+=d.vx+Math.sin(d.wobble)*0.18;
-    d.y+=d.vy;
+    d.wobble+=d.wSpd; d.x+=d.vx+Math.sin(d.wobble)*0.18; d.y+=d.vy;
     if (d.y>H+60) { Object.assign(d,makeDrop()); d.y=-5; }
     if (d.refAlpha>0) d.refAlpha=Math.max(0,d.refAlpha-0.018);
-
     lctx.save();
-
-    // sliding streak trail
     if (d.streak) {
       const sg=lctx.createLinearGradient(d.x,d.y-d.sLen,d.x,d.y);
       sg.addColorStop(0,'transparent'); sg.addColorStop(1,'rgba(140,170,215,0.55)');
       lctx.globalAlpha=d.alpha*0.3; lctx.fillStyle=sg;
       lctx.fillRect(d.x-d.r*0.35,d.y-d.sLen,d.r*0.7,d.sLen);
     }
-
-    // outer glow
     lctx.globalAlpha=d.alpha*0.5;
     const og=lctx.createRadialGradient(d.x,d.y,0,d.x,d.y,d.r*1.5);
     og.addColorStop(0,'rgba(160,190,240,0.15)'); og.addColorStop(1,'transparent');
     lctx.fillStyle=og; lctx.beginPath(); lctx.ellipse(d.x,d.y,d.r*1.5,d.r,0,0,Math.PI*2); lctx.fill();
-
-    // drop body
     lctx.globalAlpha=d.alpha;
     const dg=lctx.createRadialGradient(d.x-d.r*0.3,d.y-d.r*0.3,0,d.x,d.y,d.r);
     dg.addColorStop(0,'rgba(225,238,255,0.72)');
     dg.addColorStop(0.45,'rgba(140,170,220,0.28)');
     dg.addColorStop(1,'rgba(90,130,195,0.12)');
     lctx.fillStyle=dg; lctx.beginPath(); lctx.ellipse(d.x,d.y,d.r,d.r*1.12,0,0,Math.PI*2); lctx.fill();
-
-    // specular highlight
     lctx.globalAlpha=d.alpha*0.75; lctx.fillStyle='rgba(255,255,255,0.65)';
     lctx.beginPath(); lctx.ellipse(d.x-d.r*0.28,d.y-d.r*0.28,d.r*0.22,d.r*0.13,-0.5,0,Math.PI*2); lctx.fill();
-
-    // lightning reflection flash
     if (d.refAlpha>0) {
       lctx.globalAlpha=d.refAlpha;
       const rg=lctx.createRadialGradient(d.x,d.y,0,d.x,d.y,d.r*2);
@@ -407,65 +432,57 @@ function drawLens() {
 // ── Trigger ───────────────────────────────────────────────
 const lightnings = [];
 function trigger(x, type) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
   const lx = x || (W*0.15+Math.random()*W*0.7);
   const isCloud = type==='cloud' || (!type && Math.random()<0.35);
   if (isCloud) {
     lightnings.push(new CloudLightning(lx, 35+Math.random()*85));
     flashClouds(lx, 0.85); flashLens(0.5); triggerShake(4); flashBrightness=0.3;
+    playThunder(300);
   } else {
     lightnings.push(new GroundLightning(lx));
     addThunder(lx); flashClouds(lx,1); flashLens(1); triggerShake(12); flashBrightness=0.9;
+    playThunder(200);
   }
 }
 mainCanvas.addEventListener('click', e=>trigger(e.clientX));
 
+// ── Auto trigger: 3–5 秒 ──────────────────────────────────
+function scheduleNext() {
+  const delay = 3000 + Math.random() * 2000; // 3–5 sec
+  setTimeout(() => {
+    trigger(null, Math.random()<0.38 ? 'cloud' : 'ground');
+    scheduleNext();
+  }, delay);
+}
+
 // ── Main loop ─────────────────────────────────────────────
-let autoTimer = 0;
 function loop() {
   updateShake();
   ctx.save();
   ctx.translate(shakeX, shakeY);
-
-  drawSky();
-  drawMountains();
-  drawClouds();
-
-  // far rain — blurred (background depth)
+  drawSky(); drawMountains(); drawClouds();
   ctx.save(); ctx.filter='blur(1.8px)'; ctx.globalAlpha=0.65;
-  drawRainLayer(farRain,'#556688');
-  ctx.restore();
-
-  // mid rain
+  drawRainLayer(farRain,'#556688'); ctx.restore();
   drawRainLayer(midRain,'#7788aa');
-
   drawGround();
   updateSplashes();
   drawThunder();
-
   for (let i=lightnings.length-1; i>=0; i--)
     if (!lightnings[i].draw()) lightnings.splice(i,1);
-
-  // near rain — sharp foreground
   drawRainLayer(nearRain,'#99aabb');
-
-  ctx.restore(); // end shake
-
-  drawLens(); // lens overlay — no shake (it's on camera)
-
+  ctx.restore();
+  drawLens();
   if (flashBrightness>0) flashBrightness=Math.max(0,flashBrightness-0.028);
-
-  autoTimer++;
-  if (autoTimer > 160+Math.random()*220) {
-    trigger(null, Math.random()<0.38?'cloud':'ground');
-    autoTimer=0;
-  }
   requestAnimationFrame(loop);
 }
 
 loop();
-setTimeout(()=>trigger(W*0.5,'ground'),  900);
-setTimeout(()=>trigger(W*0.28,'cloud'), 2600);
-setTimeout(()=>trigger(W*0.72,'ground'), 4200);
+scheduleNext();
+// 開場連續示範
+setTimeout(()=>trigger(W*0.5,'ground'),  800);
+setTimeout(()=>trigger(W*0.28,'cloud'), 2400);
+setTimeout(()=>trigger(W*0.72,'ground'), 4000);
 </script>
 </body>
 </html>
