@@ -10,21 +10,6 @@
   canvas { position: absolute; top: 0; left: 0; display: block; }
   #lens-canvas { z-index: 10; pointer-events: none; }
   #main-canvas { z-index: 1; }
-  #title {
-    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-    color: rgba(255,255,255,0.8); font-size: 20px; letter-spacing: 4px;
-    text-shadow: 0 0 20px #88aaff; pointer-events: none; z-index: 20;
-  }
-  #info {
-    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-    color: rgba(255,255,255,0.4); font-size: 13px; letter-spacing: 2px;
-    pointer-events: none; z-index: 20;
-  }
-  #badge {
-    position: fixed; top: 58px; left: 50%; transform: translateX(-50%);
-    color: rgba(180,200,255,0.45); font-size: 11px; letter-spacing: 1px;
-    pointer-events: none; z-index: 20; white-space: nowrap;
-  }
 </style>
 </head>
 <body>
@@ -32,9 +17,6 @@
   <canvas id="main-canvas"></canvas>
   <canvas id="lens-canvas"></canvas>
 </div>
-<div id="title">⚡ 閃電打雷示範動畫</div>
-<div id="badge">雲中閃 ／ 地擊閃 ／ 景深雨層 ／ 鏡頭效果 ／ 雷聲震動</div>
-<div id="info">點擊畫面立即觸發閃電</div>
 
 <script>
 // ── Canvas setup ──────────────────────────────────────────
@@ -445,7 +427,6 @@ function trigger(x, type) {
     playThunder(200);
   }
 }
-mainCanvas.addEventListener('click', e=>trigger(e.clientX));
 
 // ── Auto trigger: 3–5 秒 ──────────────────────────────────
 function scheduleNext() {
