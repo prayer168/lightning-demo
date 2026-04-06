@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>打雷示範動畫</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a1a; overflow: hidden; font-family: 'Microsoft JhengHei', sans-serif; }
+  canvas { display: block; }
+  #info {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.6);
+    font-size: 14px;
+    letter-spacing: 2px;
+    text-align: center;
+    pointer-events: none;
+  }
+  #title {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.85);
+    font-size: 22px;
+    letter-spacing: 4px;
+    text-shadow: 0 0 20px #88aaff;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="title">⚡ 閃電打雷示範動畫</div>
+<div id="info">點擊畫面 或 等待自動觸發</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// 雲朵
+const clouds = [];
+for (let i = 0; i < 6; i++) {
+  clouds.push({
+    x: Math.random() * 1200 - 100,
+    y: 60 + Math.random() * 80,
+    r: 60 + Math.random() * 60,
+    speed: 0.2 + Math.random() * 0.3,
+    alpha: 0.5 + Math.random() * 0.4
+  });
+}
+
+function drawClouds() {
+  clouds.forEach(c => {
+    c.x += c.speed;
+    if (c.x > W + 200) c.x = -200;
+    ctx.save();
+    ctx.globalAlpha = c.alpha;
+    const grad = ctx.createRadialGradient(c.x, c.y, 10, c.x, c.y, c.r);
+    grad.addColorStop(0, '#3a3a6a');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// 閃電
+class Lightning {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.segments = [];
+    this.alpha = 1;
+    this.generate(x, y, H * 0.85, 0);
+    this.glowAlpha = 1;
+    this.flashAlpha = 0.7;
+  }
+
+  generate(x, y, targetY, depth) {
+    if (depth > 6) return;
+    const steps = 8 + Math.floor(Math.random() * 6);
+    let cx = x, cy = y;
+    const segH = (targetY - y) / steps;
+    for (let i = 0; i < steps; i++) {
+      const nx = cx + (Math.random() - 0.5) * (80 - depth * 8);
+      const ny = cy + segH + (Math.random() - 0.5) * 10;
+      this.segments.push({ x1: cx, y1: cy, x2: nx, y2: ny, depth });
+      if (Math.random() < 0.3 && depth < 4) {
+        this.generate(nx, ny, ny + (targetY - ny) * (0.4 + Math.random() * 0.3), depth + 1);
+      }
+      cx = nx; cy = ny;
+    }
+  }
+
+  draw() {
+    // 全畫面閃光
+    if (this.flashAlpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = this.flashAlpha * 0.18;
+      ctx.fillStyle = '#aabbff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    this.segments.forEach(s => {
+      const w = Math.max(0.5, 4 - s.depth * 0.8);
+      // 外發光
+      ctx.save();
+      ctx.globalAlpha = this.alpha * 0.25;
+      ctx.strokeStyle = '#6699ff';
+      ctx.lineWidth = w * 6;
+      ctx.shadowColor = '#88aaff';
+      ctx.shadowBlur = 30;
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(s.x2, s.y2);
+      ctx.stroke();
+      ctx.restore();
+
+      // 核心
+      ctx.save();
+      ctx.globalAlpha = this.alpha;
+      ctx.strokeStyle = s.depth === 0 ? '#ffffff' : '#ccddff';
+      ctx.lineWidth = w;
+      ctx.shadowColor = '#aaccff';
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(s.x2, s.y2);
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    this.alpha -= 0.025;
+    this.flashAlpha -= 0.04;
+    return this.alpha > 0;
+  }
+}
+
+// 雨滴
+const raindrops = [];
+for (let i = 0; i < 200; i++) {
+  raindrops.push({
+    x: Math.random() * 1600,
+    y: Math.random() * 900,
+    speed: 8 + Math.random() * 6,
+    len: 10 + Math.random() * 15,
+    alpha: 0.1 + Math.random() * 0.2
+  });
+}
+
+function drawRain() {
+  ctx.save();
+  ctx.strokeStyle = '#8899bb';
+  ctx.lineWidth = 1;
+  raindrops.forEach(r => {
+    r.y += r.speed;
+    r.x -= 1.5;
+    if (r.y > H + 20) { r.y = -20; r.x = Math.random() * W; }
+    if (r.x < -10) r.x = W + Math.random() * 100;
+    ctx.globalAlpha = r.alpha;
+    ctx.beginPath();
+    ctx.moveTo(r.x, r.y);
+    ctx.lineTo(r.x - 3, r.y + r.len);
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// 音效視覺化（雷聲波紋）
+const thunderWaves = [];
+function addThunder(x, y) {
+  for (let i = 0; i < 3; i++) {
+    thunderWaves.push({ x, y: H * 0.85, r: i * 30, alpha: 0.6, delay: i * 8 });
+  }
+}
+
+function drawThunder() {
+  for (let i = thunderWaves.length - 1; i >= 0; i--) {
+    const w = thunderWaves[i];
+    if (w.delay > 0) { w.delay--; continue; }
+    w.r += 4;
+    w.alpha -= 0.012;
+    if (w.alpha <= 0) { thunderWaves.splice(i, 1); continue; }
+    ctx.save();
+    ctx.globalAlpha = w.alpha;
+    ctx.strokeStyle = '#aabbff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// 主迴圈
+const lightnings = [];
+let autoTimer = 0;
+
+function trigger(x) {
+  const lx = x || (W * 0.2 + Math.random() * W * 0.6);
+  lightnings.push(new Lightning(lx, H * 0.05 + Math.random() * 60));
+  addThunder(lx, H * 0.85);
+}
+
+canvas.addEventListener('click', e => trigger(e.clientX));
+
+function loop() {
+  ctx.clearRect(0, 0, W, H);
+
+  // 天空漸層
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#05050f');
+  sky.addColorStop(0.6, '#0d1228');
+  sky.addColorStop(1, '#1a1a2e');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  drawClouds();
+  drawRain();
+  drawThunder();
+
+  for (let i = lightnings.length - 1; i >= 0; i--) {
+    if (!lightnings[i].draw()) lightnings.splice(i, 1);
+  }
+
+  // 地面
+  ctx.save();
+  const ground = ctx.createLinearGradient(0, H * 0.85, 0, H);
+  ground.addColorStop(0, '#111122');
+  ground.addColorStop(1, '#0a0a14');
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, H * 0.85, W, H * 0.15);
+  ctx.restore();
+
+  // 水面反光
+  ctx.save();
+  ctx.globalAlpha = 0.07;
+  ctx.fillStyle = '#4466aa';
+  ctx.fillRect(0, H * 0.88, W, H * 0.12);
+  ctx.restore();
+
+  autoTimer++;
+  if (autoTimer > 120 + Math.random() * 180) {
+    trigger();
+    autoTimer = 0;
+  }
+
+  requestAnimationFrame(loop);
+}
+
+loop();
+// 開場第一道閃電
+setTimeout(() => trigger(W / 2), 800);
+</script>
+</body>
+</html>
